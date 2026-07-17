@@ -1,0 +1,21 @@
+# Strong-name key privata — NON committare
+clr/PSMagent.snk
+*.snk
+
+# Binari compilati (ricompilare con clr/Build-PSMagent.bat)
+*.dll
+*.pdb
+*.dacpac
+
+# Build / IDE junk Visual Studio
+.vs/
+bin/
+obj/
+*.suo
+*.user
+*.vsidx
+*.dbmdl
+*.cache
+
+# Claude locale
+.claude/settings.local.json
