@@ -9,7 +9,7 @@ GO
 
 IF OBJECT_ID('dbo.Command') IS NOT NULL
 BEGIN
-    DROP PROCEDURE dbo.Command;          -- removes exposure via the schema-wide MioRuoloExecute role
+    DROP PROCEDURE dbo.Command;          -- removes exposure via the schema-wide Execute role
     PRINT 'PS_GameDefs: dbo.Command removed.';
 END
 GO
