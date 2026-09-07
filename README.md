@@ -10,6 +10,14 @@ ed EXECUTE concesso a tutta la schema via `MioRuoloExecute`).
 > Ambiente verificato (2026-06): SQL Server **2022 Express** (16.0.1180.1), `clr strict security=1`,
 > `cross db ownership chaining=0`. CLR + asymmetric key supportati su Express.
 
+## Context
+
+Targets a legacy MMO private-server stack (Shaiya-based). `ps_game` and
+`ps_login` are the game server processes; PSMagent is a CLR bridge that lets
+SQL Server send them admin commands (`/nt` broadcast notices, moderation,
+economy actions). The original bridge ran fully trusted inside the game
+database — this repo moves it into an isolated, signed, audited channel.
+
 ## Perche' (sintesi)
 - **Isolamento**: la CLR privilegiata (apre socket → `:40900` → ps_game) esce dal DB dati gioco.
 - **Niente TRUSTWORTHY**: l'assembly e' autorizzata dalla **firma** (asymmetric key in `master`), non da TRUSTWORTHY.
