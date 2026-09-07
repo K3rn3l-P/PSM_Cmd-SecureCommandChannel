@@ -87,3 +87,7 @@ To go back after step 9: re-register the old proc/assembly on PS_GameDefs (origi
 - Destructive commands stay `Enabled=0`: only enable them if truly needed, and only for the worker/GM console.
 - `worker.config.json` has plaintext credentials under the web root (already blocked by `.htaccess`):
   with `ShaiyaTaskAgent`, a leak only allows allowlisted commands. Still better to move it outside the web root.
+
+## License
+MIT (see `LICENSE`), except `clr/source-original-Database1/`, which is third-party code — see
+`clr/source-original-Database1/README.md` for its origin and credit.
