@@ -13,8 +13,17 @@
   gameplay `PS_GameLog.usp_Insert_Action_Log_E` (enchant notice, S@o0 account).
 
 ## Risks
-1. Schema-wide `MioRuoloExecute` → web/worker/game can run **any** command (`/shutdown`,
-   `/enchant`…). A SQLi as `Ernoweb@` anywhere on the site ⇒ DoS + destroys the game server economy.
+1. **Schema-wide `MioRuoloExecute`** (`GRANT EXECUTE ON SCHEMA::dbo`) → web/worker/game can run
+   **any** procedure in the schema, including the privileged CLR bridge itself (`dbo.Command`):
+   `/shutdown`, `/enchant`, anything. Not literally SQL Server's `sysadmin` server role, but the
+   practical blast radius is the same for this workload — anyone holding the role has full remote
+   control of the game server. A SQLi as `Ernoweb@` anywhere on the site ⇒ DoS + destroys the game
+   server economy.
+
+   **General rule, not just a fix for this case**: never grant permissions at the schema or server
+   level as a shortcut. Grant per object, only what each caller actually needs. Least privilege
+   isn't optional polish — it's the only thing standing between one SQLi and a shutdown command
+   reaching the server. Nothing else in this project substitutes for it.
 2. `TRUSTWORTHY ON` on PS_GameDefs (test suite finding 03/07).
 3. No allowlist/audit at the DB level. Player input (CharName/ItemName) enters the channel via the
    enchant notice.
