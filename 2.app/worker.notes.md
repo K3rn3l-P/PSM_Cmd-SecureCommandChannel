@@ -1,42 +1,45 @@
-# Repoint WORKER (task-scheduler) — connessione comandi dedicata
+# Repoint WORKER (task scheduler) — dedicated command connection
 
 File: `htdocs/tools/task-scheduler-worker/worker.ps1` + `worker.config.json`.
 
-Il worker fa DUE tipi di SQL:
-- **READ** (lista task dall'API, risoluzione meta dai DB gioco) → connessione principale `sql_connection_string`
-  (resta **Ernoweb@**, che ha i permessi di lettura).
-- **COMANDO** (invio a ps_game) → connessione **dedicata** `command_connection_string` = **ShaiyaTaskAgent → PSM_Cmd**
-  (tier ECONOMY: consente /exp2xenable ecc.).
+The worker makes TWO kinds of SQL calls:
+- **READ** (task list from the API, metadata lookups on the game DBs) → main connection
+  `sql_connection_string` (stays **Ernoweb@**, which has read permissions).
+- **COMMAND** (sending to ps_game) → **dedicated** connection `command_connection_string` =
+  **ShaiyaTaskAgent → PSM_Cmd** (tier ECONOMY: allows /exp2xenable etc.).
 
-Motivo: web e worker condividevano Ernoweb@, ma il web e' tier PLAYER e il worker ECONOMY → non possono
-condividere l'account per i comandi. ShaiyaTaskAgent resta minimo (solo EXECUTE sui wrapper di PSM_Cmd).
+Reason: web and worker used to share Ernoweb@, but the web is tier PLAYER and the worker is
+ECONOMY → they can't share the command account. ShaiyaTaskAgent stays minimal (EXECUTE on the
+PSM_Cmd wrappers only).
 
-## 1) worker.config.json — aggiungere la connessione comandi
+## 1) worker.config.json — add the command connection
 ```json
 "command_connection_string": "Server=127.0.0.1;Database=PSM_Cmd;User ID=ShaiyaTaskAgent;Password=<password>;TrustServerCertificate=True;Encrypt=False;"
 ```
 
-## 2) worker.ps1 — blocco SERVICE_COMMAND
-PRIMA:
+## 2) worker.ps1 — SERVICE_COMMAND block
+BEFORE:
 ```powershell
 $sql = 'EXEC [PS_GameDefs].[dbo].[Command] @serviceName = @ServiceName, @cmmd = @CmdText'
 Invoke-SqlNonQuery -ConnectionString ([string]$Config.sql_connection_string) ...
 ```
-DOPO:
+AFTER:
 ```powershell
 $sql = 'EXEC [PSM_Cmd].[dbo].[usp_RunCommand] @service = @ServiceName, @command = @CmdText'
 Invoke-SqlNonQuery -ConnectionString ([string]$Config.command_connection_string) ...
 ```
-(entrambe le Invoke-SqlNonQuery del comando + second_command usano `command_connection_string`).
+(both Invoke-SqlNonQuery calls for the command + second_command use `command_connection_string`).
 
 ## Allowlist
-I comandi che il worker invia DEVONO essere `Enabled=1` in `PSM_Cmd.dbo.GmCommandAllowlist`
-(es. `/exp2xenable`, `/nt` lo sono). Per abilitarne altri:
+Commands the worker sends MUST be `Enabled=1` in `PSM_Cmd.dbo.GmCommandAllowlist`
+(e.g. `/exp2xenable`, `/nt` already are). To enable others:
 ```sql
 UPDATE PSM_Cmd.dbo.GmCommandAllowlist SET Enabled=1 WHERE Command='/expupmap' AND Service='ps_game';
 ```
-Un comando non abilitato → `usp_RunCommand` ritorna DENIED e logga in `GmCommandLog` (fallback grazioso, il job non crasha).
+A disabled command → `usp_RunCommand` returns DENIED and logs to `GmCommandLog` (graceful fallback,
+the job doesn't crash).
 
-## Sicurezza credenziali
-`worker.config.json` (sotto web root, gia' bloccato da .htaccess) contiene 2 password. Con `ShaiyaTaskAgent`
-un leak permette solo comandi allowlist/tier — danno limitato. Consigliato spostare il config fuori dalla web root.
+## Credential security
+`worker.config.json` (under the web root, already blocked by .htaccess) holds 2 passwords. With
+`ShaiyaTaskAgent`, a leak only allows allowlist/tier-limited commands — bounded damage. Recommended
+to move the config outside the web root.
