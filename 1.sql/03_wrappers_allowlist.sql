@@ -1,31 +1,31 @@
 /* ============================================================================
-   03_wrappers_allowlist.sql  —  Allowlist + audit + wrapper (EXECUTE AS OWNER)
-   Esegui come sysadmin nel contesto PSM_Cmd.
-   - usp_SendNotice : SOLO /nt (web + notice enchant). Non puo' fare altro.
-   - usp_RunCommand : comandi in allowlist+Enabled (worker/console GM), con audit.
-   I wrapper usano EXECUTE AS OWNER -> i chiamanti NON hanno bisogno di EXECUTE su dbo.Command.
+   03_wrappers_allowlist.sql  —  Allowlist + audit + wrappers (EXECUTE AS OWNER)
+   Run as sysadmin in the PSM_Cmd context.
+   - usp_SendNotice : /nt ONLY (web + enchant notice). Can't do anything else.
+   - usp_RunCommand : allowlisted+Enabled commands (worker/GM console), with audit.
+   The wrappers use EXECUTE AS OWNER -> callers do NOT need EXECUTE on dbo.Command.
    ============================================================================ */
 SET NOCOUNT ON;
 USE [PSM_Cmd];
 GO
 
-/* --- Allowlist comandi (set noto ps_game/ps_login). Enabled=0 = bloccato di default. --- */
+/* --- Command allowlist (known ps_game/ps_login set). Enabled=0 = blocked by default. --- */
 IF OBJECT_ID('dbo.GmCommandAllowlist') IS NULL
 CREATE TABLE dbo.GmCommandAllowlist (
     Command     NVARCHAR(64)  NOT NULL,
     Service     NVARCHAR(20)  NOT NULL,        -- ps_game | ps_login
     Tier        VARCHAR(10)   NOT NULL,        -- SAFE | PLAYER | ECONOMY | SERVICE
     Enabled     BIT           NOT NULL DEFAULT 0,
-    Description NVARCHAR(200)  NULL,           -- a cosa serve il comando
+    Description NVARCHAR(200)  NULL,           -- what the command does
     CONSTRAINT PK_GmCommandAllowlist PRIMARY KEY (Command, Service)
 );
 GO
--- ALTER per deploy gia' esistenti (aggiunge la colonna Description se manca).
+-- ALTER for existing deployments (adds the Description column if missing).
 IF COL_LENGTH('dbo.GmCommandAllowlist','Description') IS NULL
     ALTER TABLE dbo.GmCommandAllowlist ADD Description NVARCHAR(200) NULL;
 GO
 
-/* --- Audit di ogni comando passato dai wrapper --- */
+/* --- Audit of every command passed through the wrappers --- */
 IF OBJECT_ID('dbo.GmCommandLog') IS NULL
 CREATE TABLE dbo.GmCommandLog (
     Id        BIGINT IDENTITY(1,1) PRIMARY KEY,
@@ -38,8 +38,8 @@ CREATE TABLE dbo.GmCommandLog (
 );
 GO
 
-/* --- Profilo chiamante: tier massimo consentito per login (usp_RunCommand). --- */
-/*     SAFE=1, PLAYER=2, ECONOMY=3, SERVICE=4 (SERVICE mai via questo path). --- */
+/* --- Caller profile: max tier allowed per login (usp_RunCommand). --- */
+/*     SAFE=1, PLAYER=2, ECONOMY=3, SERVICE=4 (SERVICE never through this path). --- */
 IF OBJECT_ID('dbo.GmCallerProfile') IS NULL
 CREATE TABLE dbo.GmCallerProfile (
     CallerLogin SYSNAME      NOT NULL PRIMARY KEY,
@@ -48,14 +48,14 @@ CREATE TABLE dbo.GmCallerProfile (
 GO
 MERGE dbo.GmCallerProfile AS t
 USING (VALUES
-  (N'Ernoweb@', 2),          -- web: notice + kick (SAFE+PLAYER), NO economia/service
-  (N'ShaiyaTaskAgent', 3)    -- worker: anche economia (SAFE+PLAYER+ECONOMY)
+  (N'Ernoweb@', 2),          -- web: notice + kick (SAFE+PLAYER), NO economy/service
+  (N'ShaiyaTaskAgent', 3)    -- worker: economy too (SAFE+PLAYER+ECONOMY)
 ) AS s(CallerLogin, MaxTierRank)
 ON t.CallerLogin = s.CallerLogin
 WHEN NOT MATCHED THEN INSERT (CallerLogin, MaxTierRank) VALUES (s.CallerLogin, s.MaxTierRank);
 GO
 
-/* --- Seed allowlist (idempotente). SAFE/ECONOMY usati = Enabled 1; SERVICE/distruttivi = 0. --- */
+/* --- Seed allowlist (idempotent). Used SAFE/ECONOMY = Enabled 1; SERVICE/destructive = 0. --- */
 MERGE dbo.GmCommandAllowlist AS t
 USING (VALUES
   -- ps_game SAFE
@@ -77,9 +77,9 @@ USING (VALUES
   ('/resetstatcnt','ps_game','ECONOMY',0),('/resetskillcnt','ps_game','ECONOMY',0),('/addsr','ps_game','ECONOMY',0),
   ('/enableshop','ps_game','ECONOMY',0),('/disableshop','ps_game','ECONOMY',0),('/disablenshop','ps_game','ECONOMY',0),
   ('/disablegift','ps_game','ECONOMY',0),('/enablekill','ps_game','ECONOMY',0),('/disablekill','ps_game','ECONOMY',0),
-  -- ps_game CUSTOM (comandi aggiunti in sdev.dll: command_manager). /mmake usato dall'auto-boss.
+  -- ps_game CUSTOM (commands added in sdev.dll: command_manager). /mmake used by the auto-boss job.
   ('/mmake','ps_game','ECONOMY',1),('/giveitem','ps_game','ECONOMY',0),('/mera','ps_game','ECONOMY',0),
-  -- ps_game SERVICE (distruttivi: Enabled 0)
+  -- ps_game SERVICE (destructive: Enabled 0)
   ('/quit','ps_game','SERVICE',0),('/exit','ps_game','SERVICE',0),('/shutdown','ps_game','SERVICE',0),
   ('/crashdump','ps_game','SERVICE',0),('/allout','ps_game','SERVICE',0),('/cstop','ps_game','SERVICE',0),
   ('/cstart','ps_game','SERVICE',0),
@@ -96,85 +96,85 @@ ON t.Command = s.Command AND t.Service = s.Service
 WHEN NOT MATCHED THEN INSERT (Command,Service,Tier,Enabled) VALUES (s.Command,s.Service,s.Tier,s.Enabled);
 GO
 
-/* --- Descrizioni (a cosa serve ogni comando). (inferito)=non documentato ufficialmente. --- */
+/* --- Descriptions (what each command does). (inferred)=not officially documented. --- */
 ;WITH d(Command,Service,Descr) AS (
   SELECT * FROM (VALUES
-    ('/nt','ps_game','Broadcast: messaggio a tutti i giocatori online'),
-    ('/servertime','ps_game','Mostra/imposta ora del server (inferito)'),
-    ('/viewmap','ps_game','Info su una mappa, arg=mapId (inferito)'),
-    ('/si','ps_game','Server info / stato istanza'),
-    ('/mem','ps_game','Stato memoria processo (diagnostico)'),
-    ('/uc','ps_game','User count: giocatori online'),
-    ('/chktimeout','ps_game','Forza pulizia connessioni scadute (inferito)'),
-    ('/ticktime','ps_game','Info tick time server (diagnostico) (inferito)'),
-    ('/inszonecnt','ps_game','Numero zone istanza attive (inferito)'),
-    ('/kickun','ps_game','Espelle giocatore per Username'),
-    ('/kickuid','ps_game','Espelle giocatore per UserUID'),
-    ('/kickcn','ps_game','Espelle per nome Personaggio'),
-    ('/kickcid','ps_game','Espelle per CharID'),
-    ('/setmaxuser','ps_game','Imposta numero massimo utenti concorrenti'),
-    ('/nprotecton','ps_game','Attiva protezione anti-cheat nProtect/GameGuard (inferito)'),
-    ('/nprotectoff','ps_game','Disattiva protezione anti-cheat (RISCHIOSO)'),
-    ('/initpl','ps_game','Reinizializza dati/lista player (inferito, rischioso)'),
-    ('/aiset','ps_game','Imposta parametri AI dei mob (inferito)'),
-    ('/exp2xenable','ps_game','Attiva moltiplicatore EXP, arg=rate (100=x100) [CONFERMATO] [ECONOMIA]'),
-    ('/exp2xdisable','ps_game','Disattiva moltiplicatore EXP [ECONOMIA]'),
-    ('/enchant','ps_game','Imposta rate di successo enchant (inferito) [ECONOMIA]'),
-    ('/enchantreset','ps_game','Ripristina rate enchant default'),
-    ('/gemmix','ps_game','Imposta rate gem/lapis mix (inferito) [ECONOMIA]'),
-    ('/gemext','ps_game','Imposta rate gem/lapis extend (inferito) [ECONOMIA]'),
-    ('/gemreset','ps_game','Ripristina rate gem'),
-    ('/killcnt','ps_game','Imposta evento/valori kill count (inferito) [PvP]'),
-    ('/killcntreset','ps_game','Reset kill count'),
-    ('/expupcamp','ps_game','Campagna exp-up per fazione (inferito) [ECONOMIA]'),
-    ('/expupcampreset','ps_game','Reset campagna exp-up'),
-    ('/expupmap','ps_game','Exp-up per mappa (inferito) [ECONOMIA]'),
-    ('/expupmapreset','ps_game','Reset exp-up mappa'),
-    ('/killupmap','ps_game','Kill-up per mappa (inferito) [PvP]'),
-    ('/killupmapreset','ps_game','Reset kill-up mappa'),
-    ('/resetstatcnt','ps_game','Reset conteggio reroll statistiche (inferito)'),
-    ('/resetskillcnt','ps_game','Reset conteggio reroll skill (inferito)'),
-    ('/addsr','ps_game','Aggiunge SR (significato da confermare)'),
-    ('/enableshop','ps_game','Abilita lo shop'),
-    ('/disableshop','ps_game','Disabilita lo shop'),
-    ('/disablenshop','ps_game','Disabilita n-shop / item mall (inferito)'),
-    ('/disablegift','ps_game','Disabilita i gift'),
-    ('/enablekill','ps_game','Abilita sistema kill (inferito)'),
-    ('/disablekill','ps_game','Disabilita sistema kill (inferito)'),
-    ('/mmake','ps_game','CUSTOM (sdev.dll): spawn mob/boss - /mmake mapId mobId count x y z [EVENTO]'),
-    ('/giveitem','ps_game','CUSTOM (sdev.dll): assegna item a personaggio [ECONOMIA]'),
-    ('/mera','ps_game','CUSTOM (sdev.dll): assegna denaro/gold [ECONOMIA]'),
-    ('/quit','ps_game','Spegne il processo ps_game (CRITICO)'),
-    ('/exit','ps_game','Esce/spegne il processo (CRITICO)'),
-    ('/shutdown','ps_game','Shutdown server di gioco (CRITICO)'),
-    ('/crashdump','ps_game','Genera crash dump del processo (CRITICO)'),
-    ('/allout','ps_game','Disconnette TUTTI i giocatori (CRITICO)'),
-    ('/cstop','ps_game','Ferma accettazione connessioni (CRITICO) (inferito)'),
-    ('/cstart','ps_game','Riavvia accettazione connessioni (inferito)'),
-    ('/nt','ps_login','Notice a tutti (login)'),
-    ('/sl','ps_login','Lista sessioni (inferito)'),
+    ('/nt','ps_game','Broadcast: message to all online players'),
+    ('/servertime','ps_game','Shows/sets server time (inferred)'),
+    ('/viewmap','ps_game','Map info, arg=mapId (inferred)'),
+    ('/si','ps_game','Server info / instance status'),
+    ('/mem','ps_game','Process memory status (diagnostic)'),
+    ('/uc','ps_game','User count: online players'),
+    ('/chktimeout','ps_game','Forces cleanup of expired connections (inferred)'),
+    ('/ticktime','ps_game','Server tick time info (diagnostic) (inferred)'),
+    ('/inszonecnt','ps_game','Number of active instance zones (inferred)'),
+    ('/kickun','ps_game','Kicks player by Username'),
+    ('/kickuid','ps_game','Kicks player by UserUID'),
+    ('/kickcn','ps_game','Kicks by character Name'),
+    ('/kickcid','ps_game','Kicks by CharID'),
+    ('/setmaxuser','ps_game','Sets max concurrent users'),
+    ('/nprotecton','ps_game','Enables nProtect/GameGuard anti-cheat (inferred)'),
+    ('/nprotectoff','ps_game','Disables anti-cheat protection (RISKY)'),
+    ('/initpl','ps_game','Reinitializes player data/list (inferred, risky)'),
+    ('/aiset','ps_game','Sets mob AI parameters (inferred)'),
+    ('/exp2xenable','ps_game','Enables EXP multiplier, arg=rate (100=x100) [CONFIRMED] [ECONOMY]'),
+    ('/exp2xdisable','ps_game','Disables EXP multiplier [ECONOMY]'),
+    ('/enchant','ps_game','Sets enchant success rate (inferred) [ECONOMY]'),
+    ('/enchantreset','ps_game','Restores default enchant rate'),
+    ('/gemmix','ps_game','Sets gem/lapis mix rate (inferred) [ECONOMY]'),
+    ('/gemext','ps_game','Sets gem/lapis extend rate (inferred) [ECONOMY]'),
+    ('/gemreset','ps_game','Restores gem rate'),
+    ('/killcnt','ps_game','Sets kill-count event/values (inferred) [PvP]'),
+    ('/killcntreset','ps_game','Resets kill count'),
+    ('/expupcamp','ps_game','Faction exp-up campaign (inferred) [ECONOMY]'),
+    ('/expupcampreset','ps_game','Resets exp-up campaign'),
+    ('/expupmap','ps_game','Per-map exp-up (inferred) [ECONOMY]'),
+    ('/expupmapreset','ps_game','Resets per-map exp-up'),
+    ('/killupmap','ps_game','Per-map kill-up (inferred) [PvP]'),
+    ('/killupmapreset','ps_game','Resets per-map kill-up'),
+    ('/resetstatcnt','ps_game','Resets stat reroll count (inferred)'),
+    ('/resetskillcnt','ps_game','Resets skill reroll count (inferred)'),
+    ('/addsr','ps_game','Adds SR (meaning to confirm)'),
+    ('/enableshop','ps_game','Enables the shop'),
+    ('/disableshop','ps_game','Disables the shop'),
+    ('/disablenshop','ps_game','Disables n-shop / item mall (inferred)'),
+    ('/disablegift','ps_game','Disables gifts'),
+    ('/enablekill','ps_game','Enables the kill system (inferred)'),
+    ('/disablekill','ps_game','Disables the kill system (inferred)'),
+    ('/mmake','ps_game','CUSTOM (sdev.dll): spawns a mob/boss - /mmake mapId mobId count x y z [EVENT]'),
+    ('/giveitem','ps_game','CUSTOM (sdev.dll): grants an item to a character [ECONOMY]'),
+    ('/mera','ps_game','CUSTOM (sdev.dll): grants money/gold [ECONOMY]'),
+    ('/quit','ps_game','Shuts down the ps_game process (CRITICAL)'),
+    ('/exit','ps_game','Exits/shuts down the process (CRITICAL)'),
+    ('/shutdown','ps_game','Shuts down the game server (CRITICAL)'),
+    ('/crashdump','ps_game','Generates a process crash dump (CRITICAL)'),
+    ('/allout','ps_game','Disconnects ALL players (CRITICAL)'),
+    ('/cstop','ps_game','Stops accepting connections (CRITICAL) (inferred)'),
+    ('/cstart','ps_game','Restarts accepting connections (inferred)'),
+    ('/nt','ps_login','Notice to all (login)'),
+    ('/sl','ps_login','Session list (inferred)'),
     ('/si','ps_login','Server info'),
-    ('/mem','ps_login','Stato memoria'),
+    ('/mem','ps_login','Memory status'),
     ('/uc','ps_login','User count'),
-    ('/vchg','ps_login','Cambia versione client richiesta (inferito)'),
-    ('/setmaxuser','ps_login','Max utenti login'),
-    ('/adminopen','ps_login','Apre login SOLO agli admin (manutenzione) (CRITICO)'),
-    ('/adminclose','ps_login','Ripristina login normale (CRITICO)'),
-    ('/vchkon','ps_login','Attiva controllo versione client'),
-    ('/vchkoff','ps_login','Disattiva controllo versione client (RISCHIOSO)'),
-    ('/hide1svr','ps_login','Nasconde un server dalla lista'),
-    ('/show1svr','ps_login','Mostra un server nella lista'),
-    ('/showallsvr','ps_login','Mostra tutti i server'),
-    ('/cstop','ps_login','Ferma connessioni login (CRITICO)'),
-    ('/cstart','ps_login','Riavvia connessioni login'),
-    ('/shutdown','ps_login','Shutdown login server (CRITICO)')
+    ('/vchg','ps_login','Changes the required client version (inferred)'),
+    ('/setmaxuser','ps_login','Max login users'),
+    ('/adminopen','ps_login','Opens login to admins ONLY (maintenance) (CRITICAL)'),
+    ('/adminclose','ps_login','Restores normal login (CRITICAL)'),
+    ('/vchkon','ps_login','Enables client version check'),
+    ('/vchkoff','ps_login','Disables client version check (RISKY)'),
+    ('/hide1svr','ps_login','Hides a server from the list'),
+    ('/show1svr','ps_login','Shows a server in the list'),
+    ('/showallsvr','ps_login','Shows all servers'),
+    ('/cstop','ps_login','Stops login connections (CRITICAL)'),
+    ('/cstart','ps_login','Restarts login connections'),
+    ('/shutdown','ps_login','Shuts down the login server (CRITICAL)')
   ) x(Command,Service,Descr)
 )
 UPDATE a SET a.Description = d.Descr
 FROM dbo.GmCommandAllowlist a JOIN d ON a.Command = d.Command AND a.Service = d.Service;
 GO
 
-/* --- Wrapper STRETTO: solo /nt. Sanifica il testo. --- */
+/* --- STRICT wrapper: /nt only. Sanitizes the text. --- */
 CREATE OR ALTER PROCEDURE dbo.usp_SendNotice
     @text    NVARCHAR(200),
     @service NVARCHAR(20) = N'ps_game'
@@ -183,7 +183,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
     IF @service NOT IN (N'ps_game', N'ps_login') SET @service = N'ps_game';
-    -- sanifica: niente CR/LF, niente '/' iniziale (eviterebbe l'iniezione di un altro comando), cap 150
+    -- sanitize: no CR/LF, no leading '/' (would allow injecting another command), cap at 150
     SET @text = REPLACE(REPLACE(ISNULL(@text, N''), CHAR(13), N' '), CHAR(10), N' ');
     SET @text = LTRIM(RTRIM(@text));
     WHILE LEFT(@text, 1) = N'/' SET @text = LTRIM(SUBSTRING(@text, 2, LEN(@text)));
@@ -206,7 +206,7 @@ BEGIN
 END
 GO
 
-/* --- Wrapper TIER: comando in allowlist + Enabled. Audit. --- */
+/* --- TIERED wrapper: allowlisted + Enabled commands. Audited. --- */
 CREATE OR ALTER PROCEDURE dbo.usp_RunCommand
     @service NVARCHAR(20),
     @command NVARCHAR(4000)
@@ -225,10 +225,10 @@ BEGIN
     SET @token = CASE WHEN CHARINDEX(N' ', @token) > 0
                       THEN LEFT(@token, CHARINDEX(N' ', @token) - 1) ELSE @token END;
 
-    -- comando deve essere in allowlist + Enabled
+    -- command must be allowlisted + Enabled
     DECLARE @tier VARCHAR(10) = (SELECT Tier FROM dbo.GmCommandAllowlist
                                  WHERE Command = @token AND Service = @service AND Enabled = 1);
-    -- tier massimo consentito al chiamante reale
+    -- max tier allowed for the actual caller
     DECLARE @maxRank TINYINT = ISNULL((SELECT MaxTierRank FROM dbo.GmCallerProfile
                                        WHERE CallerLogin = ORIGINAL_LOGIN()), 0);
     DECLARE @rank TINYINT = CASE @tier WHEN 'SAFE' THEN 1 WHEN 'PLAYER' THEN 2
