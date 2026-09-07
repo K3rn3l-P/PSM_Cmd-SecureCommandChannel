@@ -1,9 +1,9 @@
 //------------------------------------------------------------------------------
-// PSMagent - CLR bridge SQL -> socket PSM (ps_game/ps_login) su 127.0.0.1:40900
-// Versione HARDENED (progetto B): allowlist serviceName + socket con using/dispose.
-// La validazione del COMANDO e l'autorizzazione stanno nei wrapper T-SQL (usp_SendNotice /
-// usp_RunCommand) e nei grant: questa CLR resta minima e fidata.
-// Firmare con strong name (SNK) e registrare via 02_cert_and_assembly.sql (NO TRUSTWORTHY).
+// PSMagent - CLR bridge from SQL to the PSM socket (ps_game/ps_login) on 127.0.0.1:40900
+// Hardened version (project B): serviceName allowlist + socket with using/dispose.
+// Command validation and authorization live in the T-SQL wrappers (usp_SendNotice /
+// usp_RunCommand) and their grants: this CLR stays minimal and trusted.
+// Sign with a strong name (SNK) and register via 02_cert_and_assembly.sql (NO TRUSTWORTHY).
 //------------------------------------------------------------------------------
 using System;
 using System.Data.SqlTypes;
@@ -17,7 +17,7 @@ public partial class StoredProcedures
     private const string PsmHost = "127.0.0.1";
     private const int    PsmPort = 40900;
     private const int    HeaderSize = 258;     // 2 (command position) + 256 (service name)
-    private const short  HeaderMarker = 1281;  // command position fissa
+    private const short  HeaderMarker = 1281;  // fixed command position
 
     [Microsoft.SqlServer.Server.SqlProcedure]
     public static void Command(SqlString serviceName, SqlString cmmd)
@@ -25,23 +25,23 @@ public partial class StoredProcedures
         SqlPipe sp = SqlContext.Pipe;
         string retMessage = "0";
 
-        // --- Allowlist servizio (difesa in profondita': i wrapper gia' la impongono) ---
+        // --- Service allowlist (defense in depth: the wrappers already enforce this) ---
         string svc = serviceName.IsNull ? string.Empty : serviceName.Value.Trim();
         if (svc != "ps_game" && svc != "ps_login")
         {
-            sp.Send("ERROR: serviceName non valido.");
+            sp.Send("ERROR: invalid serviceName.");
             return;
         }
         if (cmmd.IsNull)
         {
-            sp.Send("ERROR: comando nullo.");
+            sp.Send("ERROR: null command.");
             return;
         }
         string command = cmmd.Value;
 
         try
         {
-            // header: marker + service name (256 byte, zero-padded)
+            // header: marker + service name (256 bytes, zero-padded)
             byte[] rawCommon = new byte[HeaderSize];
             using (var hms = new MemoryStream(rawCommon))
             using (var hbw = new BinaryWriter(hms))
