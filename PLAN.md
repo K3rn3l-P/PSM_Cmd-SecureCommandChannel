@@ -1,42 +1,48 @@
-# Piano / architettura — Canale comandi PSMagent sicuro
+# Plan / architecture — Secure PSMagent command channel
 
-## Stato verificato (SQL live, 2026-06)
+## Verified state (live SQL, 2026-06)
 - SQL Server **2022 Express** (16.0.1180.1). `clr strict security=1`, `cross db ownership chaining=0`.
-- Assembly **`PSMagent`** = `EXTERNAL_ACCESS`, in **PS_GameDefs**, `TRUSTWORTHY ON`, owner DB = `WIN\Administrator` (sysadmin).
-- Proc `[PS_GameDefs].[dbo].[Command]` → CLR → socket `127.0.0.1:40900` → comandi nativi `ps_game`/`ps_login`
-  (set noto estratto da Ghidra `ps_game.exe FUN_004090c0` + `/help`).
-- `EXECUTE` su `Command` **non diretto**: `MioRuoloExecute` = `GRANT EXECUTE ON SCHEMA::dbo` → execute su TUTTA la
-  schema. Membri: **`Ernoweb@`** (web+worker) e **`S@o0#$h1908`** (servizi game/log).
-- **3 chiamanti**: web `admin_actions.php` (`/nt`), worker `worker.ps1` (economia, account Ernoweb@),
-  gameplay `PS_GameLog.usp_Insert_Action_Log_E` (notice enchant, account S@o0).
+- **`PSMagent`** assembly = `EXTERNAL_ACCESS`, inside **PS_GameDefs**, `TRUSTWORTHY ON`, DB owner =
+  `WIN\Administrator` (sysadmin).
+- Proc `[PS_GameDefs].[dbo].[Command]` → CLR → socket `127.0.0.1:40900` → native `ps_game`/`ps_login`
+  commands (known set extracted from Ghidra `ps_game.exe FUN_004090c0` + `/help`).
+- `EXECUTE` on `Command` **is not granted directly**: `MioRuoloExecute` = `GRANT EXECUTE ON SCHEMA::dbo`
+  → execute on the WHOLE schema. Members: **`Ernoweb@`** (web+worker) and **`S@o0#$h1908`**
+  (game/log services).
+- **3 callers**: web `admin_actions.php` (`/nt`), worker `worker.ps1` (economy, Ernoweb@ account),
+  gameplay `PS_GameLog.usp_Insert_Action_Log_E` (enchant notice, S@o0 account).
 
-## Rischi
-1. `MioRuoloExecute` schema-wide → web/worker/game possono eseguire **qualsiasi** comando (`/shutdown`, `/enchant`…).
-   Una SQLi come `Ernoweb@` ovunque nel sito ⇒ DoS + distruzione economia del game server.
-2. `TRUSTWORTHY ON` su PS_GameDefs (finding suite 03/07).
-3. Nessun allowlist/audit lato DB. Input giocatore (CharName/ItemName) entra nel canale via notice enchant.
+## Risks
+1. Schema-wide `MioRuoloExecute` → web/worker/game can run **any** command (`/shutdown`,
+   `/enchant`…). A SQLi as `Ernoweb@` anywhere on the site ⇒ DoS + destroys the game server economy.
+2. `TRUSTWORTHY ON` on PS_GameDefs (test suite finding 03/07).
+3. No allowlist/audit at the DB level. Player input (CharName/ItemName) enters the channel via the
+   enchant notice.
 
-## Decisione
-- **Codice (B)**: CLR originale (`C:\Users\lol\Desktop\Database1`) hardened (allowlist serviceName, socket `using`),
-  **firmata SNK**. Scartato `D:\Download\PSM_Agent-main` (throttle bug Now/UtcNow, provenienza ignota).
-- **DB dedicato chiuso `PSM_Cmd`**: assembly firmata (no TRUSTWORTHY), owner non-sysadmin, guest off, db_chaining off.
+## Decision
+- **Code (B)**: original CLR (`C:\Users\lol\Desktop\Database1`) hardened (serviceName allowlist,
+  socket `using`), **SNK-signed**. Discarded `D:\Download\PSM_Agent-main` (Now/UtcNow throttle bug,
+  unknown provenance).
+- **Dedicated, closed `PSM_Cmd` database**: signed assembly (no TRUSTWORTHY), non-sysadmin owner,
+  guest off, db_chaining off.
 
-## Architettura target
-- `PSM_Cmd.dbo.Command` (CLR EXTERNAL NAME) **privata** (nessun grant).
-- `usp_SendNotice(@text)` — solo `/nt`, sanifica testo. Per web + notice enchant.
-- `usp_RunCommand(@service,@command)` — allowlist (`GmCommandAllowlist`, distruttivi `Enabled=0`) + audit (`GmCommandLog`). Per worker.
-- Entrambi `WITH EXECUTE AS OWNER` → i chiamanti NON hanno EXECUTE su `Command`.
-- Account/grant minimi + **tier per chiamante** (`GmCallerProfile`): `Ernoweb@` (web)→usp_RunCommand tier PLAYER
-  (/nt + /kick*, no economia/service); `S@o0#$h1908` (gameplay)→usp_SendNotice (/nt sanificato);
-  `ShaiyaTaskAgent` (worker, connessione dedicata)→usp_RunCommand tier ECONOMY.
-- Rimuovere `Command` da PS_GameDefs → `PS_GameDefs TRUSTWORTHY OFF`.
+## Target architecture
+- `PSM_Cmd.dbo.Command` (CLR EXTERNAL NAME) **private** (no grants).
+- `usp_SendNotice(@text)` — `/nt` only, sanitizes the text. For web + enchant notice.
+- `usp_RunCommand(@service,@command)` — allowlist (`GmCommandAllowlist`, destructive = `Enabled=0`) +
+  audit (`GmCommandLog`). For the worker.
+- Both run `WITH EXECUTE AS OWNER` → callers do NOT have EXECUTE on `Command`.
+- Least-privilege accounts + **tier per caller** (`GmCallerProfile`): `Ernoweb@` (web) → usp_RunCommand
+  tier PLAYER (/nt + /kick*, no economy/service); `S@o0#$h1908` (gameplay) → usp_SendNotice
+  (sanitized /nt); `ShaiyaTaskAgent` (worker, dedicated connection) → usp_RunCommand tier ECONOMY.
+- Remove `Command` from PS_GameDefs → `PS_GameDefs TRUSTWORTHY OFF`.
 
-## Beneficio
-- SQLi web (Ernoweb@) ⇒ al massimo un broadcast `/nt`, non comandi distruttivi.
-- Comandi economia/servizio solo via worker isolato + allowlist + audit.
-- PS_GameDefs e PSM_Cmd entrambi `TRUSTWORTHY OFF` (test suite 03/07 verdi).
+## Benefit
+- Web SQLi (Ernoweb@) ⇒ at most a `/nt` broadcast, never destructive commands.
+- Economy/service commands only via the isolated worker + allowlist + audit.
+- PS_GameDefs and PSM_Cmd both `TRUSTWORTHY OFF` (test suite 03/07 pass).
 
-## Implementazione
-Vedi `README.md` (ordine 1→10) e gli script in `sql/` + patch in `app/` + build in `clr/`.
-Da confermare in fase esecuzione: password nuove (`PSMCmdOwner`, `ShaiyaTaskAgent`), path DLL firmata,
-e test end-to-end su prova prima del `06_remove_old.sql`.
+## Implementation
+See `README.md` (steps 1→10) and the scripts in `sql/` + patches in `app/` + build in `clr/`.
+To confirm at execution time: new passwords (`PSMCmdOwner`, `ShaiyaTaskAgent`), the signed DLL path,
+and end-to-end testing on staging before `06_remove_old.sql`.
