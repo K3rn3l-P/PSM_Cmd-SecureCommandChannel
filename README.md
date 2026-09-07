@@ -6,7 +6,7 @@ securely, **from scratch**: a **signed** CLR assembly in a **dedicated, closed d
 **least-privilege accounts**.
 
 Replaces the old scheme (the `PSMagent` assembly, `EXTERNAL_ACCESS`, living inside `PS_GameDefs`
-with `TRUSTWORTHY ON` and EXECUTE granted schema-wide via `MioRuoloExecute`).
+with `TRUSTWORTHY ON` and EXECUTE granted schema-wide via a custom `Execute` role).
 
 > Verified environment (2026-06): SQL Server **2022 Express** (16.0.1180.1), `clr strict security=1`,
 > `cross db ownership chaining=0`. CLR + asymmetric key signing both supported on Express.
