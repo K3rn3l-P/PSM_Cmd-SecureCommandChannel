@@ -1,23 +1,23 @@
 /* ============================================================================
-   05_repoint_callers.sql  —  Ripuntare i chiamanti al nuovo DB
-   Esegui come sysadmin DOPO 01-04 (PSM_Cmd pronto) e PRIMA di 06 (rimozione vecchio).
+   05_repoint_callers.sql  —  Repoint callers to the new DB
+   Run as sysadmin AFTER 01-04 (PSM_Cmd ready) and BEFORE 06 (removing the old channel).
    ============================================================================ */
 
-/* 1) GAMEPLAY (enchant notice) — applicare la proc modificata:
+/* 1) GAMEPLAY (enchant notice) — apply the modified proc:
       ..\app\usp_Insert_Action_Log_E_V2.NEW.sql
-   (cambia solo il blocco "Notice message on success enchant": da
+   (changes only the "Notice message on success enchant" block: from
       EXEC [PS_GameDefs].[dbo].[Command] @serviceName=N'ps_game', @cmmd=N'/nt ...'
-    a
+    to
       EXEC [PSM_Cmd].[dbo].[usp_SendNotice] @text=@InputTextEnchantMsg, @service=N'ps_game')   */
 
-/* 2) WEB (send_notice) — applicare la patch PHP:
+/* 2) WEB (send_notice) — apply the PHP patch:
       ..\app\admin_actions.send_notice.snippet.php
-   La riga 500 di htdocs/admin_actions.php passa da EXEC [PS_GameDefs].[dbo].[Command]
-   a EXEC [PSM_Cmd].[dbo].[usp_SendNotice] @text=?  (resta account Ernoweb@). */
+   Line 500 of htdocs/admin_actions.php changes from EXEC [PS_GameDefs].[dbo].[Command]
+   to EXEC [PSM_Cmd].[dbo].[usp_SendNotice] @text=?  (stays on the Ernoweb@ account). */
 
-/* 3) WORKER (economia) — vedi ..\app\worker.notes.md :
-      - worker.config.json: User ID = ShaiyaTaskAgent (nuova password)
-      - i comandi vanno via EXEC [PSM_Cmd].[dbo].[usp_RunCommand] @service=N'ps_game', @command=? */
+/* 3) WORKER (economy) — see ..\app\worker.notes.md :
+      - worker.config.json: User ID = ShaiyaTaskAgent (new password)
+      - commands go through EXEC [PSM_Cmd].[dbo].[usp_RunCommand] @service=N'ps_game', @command=? */
 
-PRINT 'Repoint: applicare i 3 file in ..\app\ (gameplay/web/worker). Nessuna SQL automatica qui.';
+PRINT 'Repoint: apply the 3 files in ..\app\ (gameplay/web/worker). No automated SQL here.';
 GO
