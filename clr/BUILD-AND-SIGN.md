@@ -1,47 +1,49 @@
-# Build & firma di PSMagent.dll — da zero
+# Build & sign PSMagent.dll — from scratch
 
-Obiettivo: produrre **`PSMagent.signed.dll`** (assembly CLR **firmata con strong name**), così da registrarla
-con `PERMISSION_SET = EXTERNAL_ACCESS` autorizzata via **asymmetric key** in `master`
-(`..\sql\02_cert_and_assembly.sql`), con `clr strict security=1` e **SENZA TRUSTWORTHY**.
+Goal: produce **`PSMagent.signed.dll`** (a strong-name **signed** CLR assembly), so it can be
+registered with `PERMISSION_SET = EXTERNAL_ACCESS` authorized via an **asymmetric key** in `master`
+(`..\sql\02_cert_and_assembly.sql`), with `clr strict security=1` and **WITHOUT TRUSTWORTHY**.
 
-## File in questa cartella
-- `Command.cs` — sorgente **hardened** da compilare (allowlist serviceName + socket `using`).
-- `Build-PSMagent.ps1` / `Build-PSMagent.bat` — build+firma automatici (NON serve Visual Studio).
-- `source-original-Database1\` — copia del **progetto originale** (`.sln`/`.sqlproj`/`Command.cs` + DLL originale), per riferimento.
+## Files in this folder
+- `Command.cs` — the **hardened** source to compile (serviceName allowlist + socket `using`).
+- `Build-PSMagent.ps1` / `Build-PSMagent.bat` — automated build+sign (Visual Studio NOT required).
+- `source-original-Database1\` — copy of the **original project** (`.sln`/`.sqlproj`/`Command.cs` + original DLL), for reference.
 
 ---
 
-## Metodo 1 (consigliato): script automatico — niente Visual Studio
-Requisiti: `csc.exe` (presente con .NET Framework 4, sempre su Windows) + `sn.exe` (presente con VS o Windows SDK).
+## Method 1 (recommended): automated script — no Visual Studio
+Requirements: `csc.exe` (ships with .NET Framework 4, always on Windows) + `sn.exe` (ships with VS or the Windows SDK).
 
-1. Tasto destro su **`Build-PSMagent.bat` → Esegui come amministratore**
-   (l'output default e' `C:\ShaiyaServer\PSM_Client\Bin\` che potrebbe richiedere permessi).
-   - Per un path diverso: `Build-PSMagent.bat -OutDir "D:\tmp"`.
-2. Lo script:
-   - trova `csc.exe`;
-   - genera `PSMagent.snk` al primo run (cerca `sn.exe`; **conserva** questo file);
-   - compila e firma → `C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`.
-3. Se buildi su un PC diverso dal server: **copia** `PSMagent.signed.dll` nel path del server
-   (`C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`).
+1. Right-click **`Build-PSMagent.bat` → Run as administrator**
+   (the default output is `C:\ShaiyaServer\PSM_Client\Bin\`, which may need elevated permissions).
+   - For a different path: `Build-PSMagent.bat -OutDir "D:\tmp"`.
+2. The script:
+   - finds `csc.exe`;
+   - generates `PSMagent.snk` on first run (looks for `sn.exe`; **keep** this file);
+   - compiles and signs → `C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`.
+3. If you build on a different machine than the server: **copy** `PSMagent.signed.dll` to the
+   server path (`C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`).
 
-Se `sn.exe` non viene trovato: aprire un "Developer Command Prompt for VS" e lanciare una volta
-`sn -k PSMagent.snk` in questa cartella, poi rilanciare `Build-PSMagent.bat`.
+If `sn.exe` is not found: open a "Developer Command Prompt for VS" and run `sn -k PSMagent.snk`
+once in this folder, then rerun `Build-PSMagent.bat`.
 
-## Metodo 2: Visual Studio (manuale)
-1. Nuovo progetto **Class Library (.NET Framework)**, target **.NET Framework 4.7.2** (o 4.8).
-   (SQL Server 2022 ospita CLR v4 .NET Framework — NON .NET Core/5+.)
-2. Sostituisci il file con `Command.cs` di questa cartella. Reference: `System`, `System.Data`.
-3. Proprieta' progetto → **Signing** → **Sign the assembly** → `<New...>` → `PSMagent.snk` (senza password).
-4. Build **Release** → copia l'output in `C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`.
+## Method 2: Visual Studio (manual)
+1. New **Class Library (.NET Framework)** project, targeting **.NET Framework 4.7.2** (or 4.8).
+   (SQL Server 2022 hosts CLR v4 .NET Framework — NOT .NET Core/5+.)
+2. Replace the file with this folder's `Command.cs`. References: `System`, `System.Data`.
+3. Project properties → **Signing** → **Sign the assembly** → `<New...>` → `PSMagent.snk` (no password).
+4. **Release** build → copy the output to `C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`.
 
-## Verifica firma
+## Verify the signature
 ```
-sn -T "C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll"   REM deve stampare un public key token
+sn -T "C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll"   REM should print a public key token
 ```
 
-## Note
-- Riusa **sempre lo stesso `PSMagent.snk`**: la chiave pubblica non cambia ⇒ l'asymmetric key in `master`
-  resta valida anche se ricompili (non serve rifare lo step 02). Conserva `.snk` in modo sicuro (fuori dalla web root).
-- Se cambi la `.snk`, devi droppare/ricreare l'asymmetric key in `master` (rifai `02_cert_and_assembly.sql`).
-- Il progetto originale SSDT (`source-original-Database1`) creava la DLL con `EXTERNAL_ACCESS` **+ TRUSTWORTHY**:
-  NON usarlo per il deploy sicuro — qui usiamo la firma, non TRUSTWORTHY.
+## Notes
+- Always reuse **the same `PSMagent.snk`**: the public key doesn't change ⇒ the asymmetric key in
+  `master` stays valid even after rebuilding (no need to redo step 02). Keep the `.snk` safe
+  (outside the web root).
+- If you change the `.snk`, you must drop/recreate the asymmetric key in `master` (redo
+  `02_cert_and_assembly.sql`).
+- The original SSDT project (`source-original-Database1`) built the DLL with `EXTERNAL_ACCESS`
+  **+ TRUSTWORTHY**: do NOT use it for a secure deploy — here we use signing, not TRUSTWORTHY.
