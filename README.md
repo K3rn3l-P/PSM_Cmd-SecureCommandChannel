@@ -88,6 +88,13 @@ To go back after step 9: re-register the old proc/assembly on PS_GameDefs (origi
 - `worker.config.json` has plaintext credentials under the web root (already blocked by `.htaccess`):
   with `ShaiyaTaskAgent`, a leak only allows allowlisted commands. Still better to move it outside the web root.
 
+## Related
+
+Same Shaiya toolchain as [UltimateAntiCheat](https://github.com/K3rn3l-P/UltimateAntiCheat),
+[shaiya-updater](https://github.com/K3rn3l-P/shaiya-updater) and
+[shaiyaserver-ep6](https://github.com/K3rn3l-P/shaiyaserver-ep6) — same author, same period, no
+code shared between them.
+
 ## License
 MIT (see `LICENSE`), except `clr/source-original-Database1/`, which is third-party code — see
 `clr/source-original-Database1/README.md` for its origin and credit.
