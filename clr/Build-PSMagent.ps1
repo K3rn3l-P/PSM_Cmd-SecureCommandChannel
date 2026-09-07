@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-  Compila e FIRMA (strong name) PSMagent.dll dalla sorgente hardened Command.cs.
-  Non richiede Visual Studio: usa csc.exe (.NET Framework 4) + sn.exe (per la chiave SNK).
+  Compiles and SIGNS (strong name) PSMagent.dll from the hardened Command.cs source.
+  No Visual Studio required: uses csc.exe (.NET Framework 4) + sn.exe (for the SNK key).
 .DESCRIPTION
-  Output: <OutDir>\PSMagent.signed.dll  (firmata) — pronta per ..\sql\02_cert_and_assembly.sql
-  La chiave PSMagent.snk viene generata al primo run e RIUSATA (non cambiarla, o rifai lo step 02).
+  Output: <OutDir>\PSMagent.signed.dll  (signed) — ready for ..\sql\02_cert_and_assembly.sql
+  The PSMagent.snk key is generated on first run and REUSED (don't change it, or redo step 02).
 .NOTES
-  Eseguire sul PC che ha VS/Windows SDK (per sn.exe). Poi copiare la DLL sul server nel path OutDir.
+  Run on the machine that has VS/Windows SDK (for sn.exe). Then copy the DLL to the server at OutDir.
 #>
 [CmdletBinding()]
 param(
@@ -18,15 +18,15 @@ param(
 $ErrorActionPreference = 'Stop'
 function Info($m){ Write-Host $m -ForegroundColor Cyan }
 
-if (-not (Test-Path $SourceCs)) { throw "Sorgente non trovata: $SourceCs" }
+if (-not (Test-Path $SourceCs)) { throw "Source not found: $SourceCs" }
 
 # --- 1) csc.exe (.NET Framework 4) ---
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path $csc)) { $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
-if (-not (Test-Path $csc)) { throw 'csc.exe (.NET Framework 4) non trovato in C:\Windows\Microsoft.NET\Framework(64)\v4.0.30319.' }
+if (-not (Test-Path $csc)) { throw 'csc.exe (.NET Framework 4) not found under C:\Windows\Microsoft.NET\Framework(64)\v4.0.30319.' }
 Info "csc: $csc"
 
-# --- 2) chiave SNK (genera se manca, cercando sn.exe) ---
+# --- 2) SNK key (generate if missing, searching for sn.exe) ---
 if (-not (Test-Path $Snk)) {
     $sn = (Get-Command sn.exe -ErrorAction SilentlyContinue).Source
     if (-not $sn) {
@@ -44,19 +44,19 @@ if (-not (Test-Path $Snk)) {
             }
         }
     }
-    if (-not $sn) { throw "sn.exe non trovato. Installa Windows SDK/VS, oppure genera la chiave a mano: sn -k `"$Snk`"" }
-    Info "sn: $sn  -> genero $Snk"
+    if (-not $sn) { throw "sn.exe not found. Install the Windows SDK/VS, or generate the key manually: sn -k `"$Snk`"" }
+    Info "sn: $sn  -> generating $Snk"
     & $sn -k $Snk | Out-Null
-} else { Info "SNK esistente: $Snk (riuso)" }
+} else { Info "Existing SNK: $Snk (reusing)" }
 
-# --- 3) compila + firma ---
+# --- 3) compile + sign ---
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $out = Join-Path $OutDir $OutName
-Info "Compilo -> $out"
+Info "Compiling -> $out"
 & $csc /nologo /target:library /platform:anycpu "/keyfile:$Snk" "/out:$out" `
        /reference:System.dll /reference:System.Data.dll "$SourceCs"
-if ($LASTEXITCODE -ne 0) { throw "csc fallito (exit $LASTEXITCODE)" }
+if ($LASTEXITCODE -ne 0) { throw "csc failed (exit $LASTEXITCODE)" }
 
 Write-Host ""
 Write-Host "OK: $out" -ForegroundColor Green
-Write-Host "Prossimo passo: copia la DLL sul server in $OutDir (se buildi altrove) e lancia ..\sql\02_cert_and_assembly.sql" -ForegroundColor Yellow
+Write-Host "Next step: copy the DLL to the server at $OutDir (if building elsewhere) and run ..\sql\02_cert_and_assembly.sql" -ForegroundColor Yellow
