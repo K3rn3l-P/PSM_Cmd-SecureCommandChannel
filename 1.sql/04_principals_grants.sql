@@ -11,7 +11,7 @@ SET NOCOUNT ON;
 
 /* Dedicated account for the task-scheduler worker (separates "command" power from the web Ernoweb@). */
 IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = 'ShaiyaTaskAgent')
-    CREATE LOGIN [ShaiyaTaskAgent] WITH PASSWORD = N'La_tua_password', CHECK_POLICY = ON;
+    CREATE LOGIN [ShaiyaTaskAgent] WITH PASSWORD = N'YourStrongPassword', CHECK_POLICY = ON;
 GO
 
 USE [PSM_Cmd];
