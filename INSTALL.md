@@ -109,6 +109,10 @@ wrappers ONLY — never directly on `dbo.Command`:
 - `S@o0#$h1908` (gameplay) → `usp_SendNotice` only (sanitized enchant notice).
 - `ShaiyaTaskAgent` (worker) → `usp_RunCommand` (tier ECONOMY) + `usp_SendNotice`.
 
+`Ernoweb@` and `S@o0#$h1908` are the pre-existing web/gameplay logins from the author's own
+test install (accounts the old channel already used) — not required literal names. Point the
+grants at whatever your own web and gameplay accounts are called.
+
 ### 7. Repoint the 3 callers
 See `1.sql/05_repoint_callers.sql` for the list, then apply the patches described in `2.app/`:
 
