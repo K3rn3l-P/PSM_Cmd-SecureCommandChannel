@@ -1,14 +1,15 @@
-# PSM_Cmd — Canale comandi PSMagent sicuro (DB dedicato, firmato, allowlist+audit)
+# PSM_Cmd — Secure PSMagent Command Channel (dedicated, signed DB, allowlist + audit)
 
-Guida di installazione **da zero** del canale comandi admin (`/nt`, comandi `ps_game`/`ps_login`) in modo
-sicuro: assembly CLR **firmata** in un **DB dedicato chiuso** (`PSM_Cmd`), **senza TRUSTWORTHY**, con
-**wrapper + allowlist + audit** e **account a privilegio minimo**.
+Step-by-step guide to install the admin command channel (`/nt`, `ps_game`/`ps_login` commands)
+securely, **from scratch**: a **signed** CLR assembly in a **dedicated, closed database**
+(`PSM_Cmd`), **without TRUSTWORTHY**, with **wrapper procedures + allowlist + audit** and
+**least-privilege accounts**.
 
-Sostituisce il vecchio schema (assembly `PSMagent` EXTERNAL_ACCESS dentro `PS_GameDefs` con `TRUSTWORTHY ON`
-ed EXECUTE concesso a tutta la schema via `MioRuoloExecute`).
+Replaces the old scheme (the `PSMagent` assembly, `EXTERNAL_ACCESS`, living inside `PS_GameDefs`
+with `TRUSTWORTHY ON` and EXECUTE granted schema-wide via `MioRuoloExecute`).
 
-> Ambiente verificato (2026-06): SQL Server **2022 Express** (16.0.1180.1), `clr strict security=1`,
-> `cross db ownership chaining=0`. CLR + asymmetric key supportati su Express.
+> Verified environment (2026-06): SQL Server **2022 Express** (16.0.1180.1), `clr strict security=1`,
+> `cross db ownership chaining=0`. CLR + asymmetric key signing both supported on Express.
 
 ## Context
 
@@ -18,69 +19,71 @@ SQL Server send them admin commands (`/nt` broadcast notices, moderation,
 economy actions). The original bridge ran fully trusted inside the game
 database — this repo moves it into an isolated, signed, audited channel.
 
-## Perche' (sintesi)
-- **Isolamento**: la CLR privilegiata (apre socket → `:40900` → ps_game) esce dal DB dati gioco.
-- **Niente TRUSTWORTHY**: l'assembly e' autorizzata dalla **firma** (asymmetric key in `master`), non da TRUSTWORTHY.
-  → `PS_GameDefs` torna `TRUSTWORTHY OFF` (chiude i finding 03/07 della test suite).
-- **Least privilege**: web (`Ernoweb@`) puo' solo `/nt`; worker (account dedicato `ShaiyaTaskAgent`) solo comandi
-  in allowlist `Enabled=1`; gameplay (`S@o0#$h1908`) solo `/nt`. Nessuno tocca `Command` direttamente
-  (wrapper `EXECUTE AS OWNER`). I comandi distruttivi (`/shutdown`, `/enchant`, …) sono `Enabled=0` di default.
-- **Audit**: ogni comando in `PSM_Cmd.dbo.GmCommandLog`.
+## Why (summary)
+- **Isolation**: the privileged CLR (opens a socket → `:40900` → ps_game) leaves the game data DB.
+- **No TRUSTWORTHY**: the assembly is authorized by its **signature** (asymmetric key in `master`),
+  not by TRUSTWORTHY. → `PS_GameDefs` goes back to `TRUSTWORTHY OFF` (closes findings 03/07 of the
+  test suite).
+- **Least privilege**: web (`Ernoweb@`) can only send `/nt`; the worker (dedicated account
+  `ShaiyaTaskAgent`) can only run commands enabled in the allowlist; gameplay (`S@o0#$h1908`) can
+  only send `/nt`. Nobody touches `Command` directly (wrapper procs run `EXECUTE AS OWNER`).
+  Destructive commands (`/shutdown`, `/enchant`, …) are `Enabled=0` by default.
+- **Audit**: every command is logged in `PSM_Cmd.dbo.GmCommandLog`.
 
-## Componenti
+## Components
 ```
-clr/Command.cs              CLR hardened (allowlist serviceName + socket using). Da firmare (SNK).
-clr/Build-PSMagent.ps1/.bat Build+firma AUTOMATICI (csc+sn, niente VS). Output PSMagent.signed.dll.
-clr/BUILD-AND-SIGN.md       Istruzioni build/firma da zero (script o VS).
-clr/source-original-Database1/  Copia del progetto ORIGINALE (sln/sqlproj/Command.cs + dll) per riferimento.
-sql/00_prereqs.sql          CLR on, verifica edition/flag.
-sql/01_create_db_PSM_Cmd.sql  Crea PSM_Cmd chiuso (TRUSTWORTHY off, owner non-sysadmin, guest off).
-sql/02_cert_and_assembly.sql  Asymmetric key da DLL firmata + assembly EXTERNAL_ACCESS + dbo.Command privata.
+clr/Command.cs              Hardened CLR (serviceName allowlist + socket using). Needs signing (SNK).
+clr/Build-PSMagent.ps1/.bat Automated build+sign (csc+sn, no VS needed). Outputs PSMagent.signed.dll.
+clr/BUILD-AND-SIGN.md       Build/sign instructions from scratch (script or VS).
+clr/source-original-Database1/  Copy of the ORIGINAL project (sln/sqlproj/Command.cs + dll), for reference.
+sql/00_prereqs.sql          Enables CLR, checks edition/flags.
+sql/01_create_db_PSM_Cmd.sql  Creates the closed PSM_Cmd database (TRUSTWORTHY off, non-sysadmin owner, guest off).
+sql/02_cert_and_assembly.sql  Asymmetric key from the signed DLL + EXTERNAL_ACCESS assembly + private dbo.Command.
 sql/03_wrappers_allowlist.sql Allowlist + log + usp_SendNotice + usp_RunCommand (EXECUTE AS OWNER).
-sql/04_principals_grants.sql  Login ShaiyaTaskAgent + utenti + grant minimi sui soli wrapper.
-sql/05_repoint_callers.sql    Istruzioni per ripuntare i 3 chiamanti (vedi app/).
-sql/06_remove_old.sql         Rimuove Command+assembly da PS_GameDefs + TRUSTWORTHY OFF.
-sql/07_verify.sql             Verifiche + test /nt + test negativo /shutdown.
-app/usp_Insert_Action_Log_E_change.md   Patch gameplay (notice enchant).
-app/admin_actions.send_notice.snippet.php  Patch web (send_notice).
-app/worker.notes.md          Patch worker (account dedicato + usp_RunCommand).
-PLAN.md                      Piano/architettura e razionale completo.
-SERVER-COMMANDS-GUIDE.md     Comandi server ps_game/ps_login: cosa fanno, tier, criticita' (vs GM commands client).
+sql/04_principals_grants.sql  ShaiyaTaskAgent login + users + least-privilege grants on wrappers only.
+sql/05_repoint_callers.sql    Instructions to repoint the 3 callers (see app/).
+sql/06_remove_old.sql         Removes Command+assembly from PS_GameDefs + TRUSTWORTHY OFF.
+sql/07_verify.sql             Checks + /nt test + negative /shutdown test.
+app/usp_Insert_Action_Log_E_change.md   Gameplay patch (enchant notice).
+app/admin_actions.send_notice.snippet.php  Web patch (send_notice).
+app/worker.notes.md          Worker patch (dedicated account + usp_RunCommand).
+PLAN.md                      Full plan/architecture and rationale.
+SERVER-COMMANDS-GUIDE.md     ps_game/ps_login server commands: what they do, tier, criticality (vs client GM commands).
 ```
 
-> `GmCommandAllowlist` include una colonna **`Description`** (a cosa serve ogni comando) — vedi SERVER-COMMANDS-GUIDE.md.
-> NB: i comandi SERVER (qui) sono diversi dai **GM commands client** (es. /imake /summon) che girano nel client.
+> `GmCommandAllowlist` has a **`Description`** column (what each command does) — see SERVER-COMMANDS-GUIDE.md.
+> NB: the SERVER commands (here) are different from client-side **GM commands** (e.g. /imake /summon).
 
-## Ordine di installazione (server NUOVO o migrazione)
-1. **Build & firma** la DLL: tasto destro su `clr/Build-PSMagent.bat` → **Esegui come amministratore**
-   (genera `PSMagent.snk` e produce `C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`). Dettagli/fallback VS: `clr/BUILD-AND-SIGN.md`.
-   Se buildi su un PC diverso dal server, copia la DLL firmata nel path del server.
+## Install order (new server or migration)
+1. **Build & sign** the DLL: right-click `clr/Build-PSMagent.bat` → **Run as administrator**
+   (generates `PSMagent.snk` and produces `C:\ShaiyaServer\PSM_Client\PSMagent.signed.dll`). Details/VS fallback: `clr/BUILD-AND-SIGN.md`.
+   If you build on a different machine than the server, copy the signed DLL to the server path.
 2. `sql/00_prereqs.sql`  (sysadmin)
-3. `sql/01_create_db_PSM_Cmd.sql`  → **cambia la password di `PSMCmdOwner`**.
-4. `sql/02_cert_and_assembly.sql`  (verifica il path della DLL).
+3. `sql/01_create_db_PSM_Cmd.sql`  → **change the `PSMCmdOwner` password**.
+4. `sql/02_cert_and_assembly.sql`  (check the DLL path).
 5. `sql/03_wrappers_allowlist.sql`
-6. `sql/04_principals_grants.sql`  → **cambia la password di `ShaiyaTaskAgent`**.
-7. **Repoint chiamanti** (`sql/05` + file in `app/`):
-   - gameplay: modifica `PS_GameLog.usp_Insert_Action_Log_E` (blocco enchant).
+6. `sql/04_principals_grants.sql`  → **change the `ShaiyaTaskAgent` password**.
+7. **Repoint callers** (`sql/05` + files in `app/`):
+   - gameplay: patch `PS_GameLog.usp_Insert_Action_Log_E` (enchant notice block).
    - web: patch `htdocs/admin_actions.php` (send_notice).
-   - worker: `worker.config.json` → `ShaiyaTaskAgent`; comandi via `usp_RunCommand`.
-8. **Test** `/nt` da web, notice enchant in-game, comando worker. Confermare che funzionano col NUOVO DB.
-9. `sql/06_remove_old.sql`  (solo dopo che 1-8 funzionano: rimuove il vecchio + `PS_GameDefs TRUSTWORTHY OFF`).
-10. `sql/07_verify.sql`  → atteso: Command assente in PS_GameDefs, assembly in PSM_Cmd, TRUSTWORTHY=0 ovunque,
-    `/nt` di test OK, `/shutdown` DENIED (-3). Poi rilancia la test suite `3.0.SERVER-TEST-SUITE` → 03/07 verdi.
+   - worker: `worker.config.json` → `ShaiyaTaskAgent`; commands via `usp_RunCommand`.
+8. **Test** `/nt` from the web, the in-game enchant notice, a worker command. Confirm they work against the NEW DB.
+9. `sql/06_remove_old.sql`  (only after 1-8 work: removes the old channel + `PS_GameDefs TRUSTWORTHY OFF`).
+10. `sql/07_verify.sql`  → expected: Command gone from PS_GameDefs, assembly present in PSM_Cmd, TRUSTWORTHY=0
+    everywhere, `/nt` test OK, `/shutdown` DENIED (-3). Then rerun the `3.0.SERVER-TEST-SUITE` — 03/07 should pass.
 
-## Abilitare un comando per il worker
-Default sicuro: economia/service = `Enabled=0`. Per abilitare quel che serve:
+## Enabling a command for the worker
+Safe default: economy/service commands = `Enabled=0`. To enable one:
 ```sql
 UPDATE PSM_Cmd.dbo.GmCommandAllowlist SET Enabled=1 WHERE Command='/exp2xenable' AND Service='ps_game';
 ```
 
-## Rollback (se qualcosa non va PRIMA del passo 9)
-Il vecchio canale (`PS_GameDefs.dbo.Command`) resta funzionante finche' non esegui `06_remove_old.sql`.
-Per tornare indietro dopo il 9: ri-registra la vecchia proc/assembly su PS_GameDefs (script guida originali
-`Versione PS_GameDefs\5-.sql`) e ripunta i chiamanti. Tieni un backup prima del passo 9.
+## Rollback (if something goes wrong BEFORE step 9)
+The old channel (`PS_GameDefs.dbo.Command`) keeps working until you run `06_remove_old.sql`.
+To go back after step 9: re-register the old proc/assembly on PS_GameDefs (original guide scripts
+`Versione PS_GameDefs\5-.sql`) and repoint the callers. Keep a backup before step 9.
 
-## Note sicurezza
-- I comandi distruttivi restano `Enabled=0`: abilitali solo se davvero servono e solo per il worker/console GM.
-- `worker.config.json` ha credenziali in chiaro sotto la web root (gia' bloccato da `.htaccess`): con
-  `ShaiyaTaskAgent` un leak permette solo comandi allowlist. Meglio comunque spostarlo fuori dalla web root.
+## Security notes
+- Destructive commands stay `Enabled=0`: only enable them if truly needed, and only for the worker/GM console.
+- `worker.config.json` has plaintext credentials under the web root (already blocked by `.htaccess`):
+  with `ShaiyaTaskAgent`, a leak only allows allowlisted commands. Still better to move it outside the web root.
