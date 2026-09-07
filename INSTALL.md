@@ -4,7 +4,7 @@ Step-by-step operational guide to install the secure PSMagent command channel **
 a Shaiya server (SQL Server 2022 Express). For the architectural "why" see `PLAN.md`; for the
 component summary see `README.md`.
 
-> ⚠️ **Secrets**: the SQL scripts use `N'La_tua_password'` as a placeholder. Replace it with real,
+> ⚠️ **Secrets**: the SQL scripts use `N'YourStrongPassword'` as a placeholder. Replace it with real,
 > strong passwords BEFORE running the scripts in production. Never commit real passwords to the repo.
 
 ## Repository tree
@@ -75,7 +75,7 @@ server, copy the signed DLL to the server path. Details/fallback (Visual Studio)
 Enables CLR, checks the server edition and security flags.
 
 ### 3. Create the dedicated database
-Before running, open `1.sql/01_create_db_PSM_Cmd.sql` and replace `N'La_tua_password'` with a
+Before running, open `1.sql/01_create_db_PSM_Cmd.sql` and replace `N'YourStrongPassword'` with a
 real, strong password for the `PSMCmdOwner` login.
 ```sql
 :r 1.sql\01_create_db_PSM_Cmd.sql
@@ -98,7 +98,7 @@ Creates `GmCommandAllowlist` (with a `Description` column), `GmCommandLog` (audi
 `usp_SendNotice` and `usp_RunCommand` procs (both `EXECUTE AS OWNER`).
 
 ### 6. Accounts and least-privilege grants
-Before running, open `1.sql/04_principals_grants.sql` and replace `N'La_tua_password'` with a
+Before running, open `1.sql/04_principals_grants.sql` and replace `N'YourStrongPassword'` with a
 real, strong password for the `ShaiyaTaskAgent` login.
 ```sql
 :r 1.sql\04_principals_grants.sql
@@ -119,7 +119,7 @@ See `1.sql/05_repoint_callers.sql` for the list, then apply the patches describe
 | Worker (task scheduler, economy) | `worker.ps1` + `worker.config.json` | `2.app/worker.notes.md` |
 
 For the worker: add the dedicated `command_connection_string` connection to `worker.config.json`
-with `User ID=ShaiyaTaskAgent;Password=La_tua_password;...` (use the real password chosen in step
+with `User ID=ShaiyaTaskAgent;Password=YourStrongPassword;...` (use the real password chosen in step
 6, don't commit it in plaintext to your config files).
 
 ### 8. End-to-end test
