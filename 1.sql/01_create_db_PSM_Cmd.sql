@@ -9,7 +9,7 @@ SET NOCOUNT ON;
    EXECUTE AS OWNER in the wrappers does NOT inherit sysadmin privileges). */
 IF NOT EXISTS (SELECT 1 FROM sys.server_principals WHERE name = 'PSMCmdOwner')
 BEGIN
-    CREATE LOGIN [PSMCmdOwner] WITH PASSWORD = N'La_tua_password',
+    CREATE LOGIN [PSMCmdOwner] WITH PASSWORD = N'YourStrongPassword',
         CHECK_POLICY = ON;
     ALTER LOGIN [PSMCmdOwner] DISABLE;   -- not needed for interactive login
     PRINT 'PSMCmdOwner login created (disabled).';
