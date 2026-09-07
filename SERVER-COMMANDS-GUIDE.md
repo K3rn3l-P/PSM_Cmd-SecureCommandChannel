@@ -15,6 +15,10 @@
 - Web confirmation: `/exp2xenable <rate>` = EXP rate (RaGEZONE). Many commands are NOT officially
   documented → descriptions marked **(inferred)** or **to confirm** where uncertain (verify in-game
   on a test server).
+- `/mmake`, `/giveitem` and `/mera` are **not** in that Ghidra table: they're custom commands added
+  by a separate injected DLL (`sdev.dll`'s `command_manager`), not part of the stock `ps_game.exe`.
+  Source: [shaiyaserver-ep6](https://github.com/K3rn3l-P/shaiyaserver-ep6)
+  (`sdev/src/command_manager.cpp`).
 
 ## Tier and criticality (mapped in `PSM_Cmd.dbo.GmCommandAllowlist`)
 - **SAFE**: harmless info/broadcast (`/nt`, `/si`, `/uc`, `/mem`, `/servertime`, `/viewmap`).
@@ -52,6 +56,9 @@
 | /allout | 0 | SERVICE | **Disconnects everyone** | **CRITICAL** |
 | /cstop /cstart | 0 | SERVICE | Stop/start accepting connections | **CRITICAL** (inferred) |
 | /crashdump | 0 | SERVICE | Process crash dump | **CRITICAL** (diagnostic) |
+| /mmake | 6 | ECONOMY | Spawns a mob/boss: `/mmake mapId mobId count x y z` | **CUSTOM** — sdev.dll, not stock `ps_game.exe` |
+| /giveitem | 4 | ECONOMY | Grants an item to a character: `/giveitem charName itemType itemId count` | **CUSTOM** — sdev.dll |
+| /mera | 6 | ECONOMY | Grants money/gold: `/mera mapId mobId count x y z` | **CUSTOM** — sdev.dll |
 
 ## ps_login — commands
 | Command | args | Tier | Description | Notes |
